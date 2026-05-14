@@ -1,0 +1,9 @@
+.env
+.env.local
+.env.*.local
+
+# Chave anon / credenciais locais (usar config.example.js no repo)
+config.js
+
+# Cache da CLI Supabase (não versionar)
+supabase/.temp/

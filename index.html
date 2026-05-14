@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>ReadEra Web Pro</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" sizes="any">
+    <link rel="apple-touch-icon" href="./favicon.svg">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js"></script>
+    <script src="config.js"></script>
+    <style>
+        :root { --primary: #2c3e50; --bg: #f4f4f4; --text: #333; --panel: #fff; --accent: #3498db; --highlight: #fff3cd; --read-surface: #ece8e0; --read-page: #faf8f4; }
+        body.dark { --primary: #1a1a1a; --bg: #121212; --text: #eee; --panel: #1e1e1e; --accent: #5dade2; --highlight: #4a3f1a; --read-surface: #0d0d0d; --read-page: #141414; }
+        html { -webkit-text-size-adjust: 100%; width: 100%; overflow-x: hidden; }
+        body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; min-height: 100dvh; height: 100vh; height: 100dvh; width: 100%; max-width: 100%; overflow-x: hidden; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+        body.reading-mode { background: var(--read-surface); }
+        body.reading-mode #viewer-container { padding-top: 22px; }
+        body.reading-mode #pdf-render-area .pdf-page-wrap { box-shadow: 0 10px 44px rgba(0,0,0,0.2); border-radius: 6px; overflow: hidden; }
+        body.reading-mode #pdf-render-area .pdf-page-inner { background: var(--read-page); }
+        header { background: var(--primary); color: white; padding: 10px 15px; padding-top: max(10px, env(safe-area-inset-top, 0px)); display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        header .header-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; flex: 1; min-width: 0; }
+        body.ui-chrome-hidden header { display: none; }
+        #viewer-container { flex: 1; min-height: 0; min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; overflow: auto; display: flex; flex-direction: column; align-items: stretch; padding: 15px; padding-bottom: 200px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+        body.ui-chrome-hidden #viewer-container { padding-bottom: 20px; }
+        #pdf-render-area { width: 100%; max-width: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
+        #pdf-render-area .pdf-page-wrap { margin: 0 auto; max-width: 100%; }
+        #pdf-render-area .pdf-page-inner { position: relative; transform-origin: 0 0; }
+        #pdf-render-area canvas { display: block; vertical-align: top; box-shadow: 0 4px 15px rgba(0,0,0,0.2); background: white; border-radius: 4px; }
+        body.reading-mode #pdf-render-area canvas { box-shadow: none; border-radius: 0; }
+        .text-layer { position: absolute; left: 0; top: 0; overflow: hidden; line-height: 1; pointer-events: none; }
+        .text-layer span { position: absolute; color: transparent; white-space: pre; transform-origin: 0 0; box-sizing: content-box; }
+        .text-layer span.tts-active { background: rgba(255, 214, 74, 0.52); border-radius: 2px; }
+        body.dark .text-layer span.tts-active { background: rgba(212, 168, 42, 0.48); }
+        #tts-text-panel { width: 100%; max-width: 720px; margin-top: 16px; margin-left: auto; margin-right: auto; align-self: center; background: var(--panel); border-radius: 8px; padding: 12px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); font-size: 0.95rem; line-height: 1.55; }
+        #tts-text-panel.hidden { display: none; }
+        #tts-text-panel .panel-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.65; margin-bottom: 8px; }
+        #tts-live-text mark { background: var(--highlight); color: inherit; padding: 0 1px; border-radius: 2px; }
+        .controls-bottom { position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a1a; color: #eee; padding: 12px 14px max(16px, env(safe-area-inset-bottom, 0px)); padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: max(14px, env(safe-area-inset-right, 0px)); z-index: 1000; box-shadow: 0 -4px 20px rgba(0,0,0,0.25); }
+        body.ui-chrome-hidden .controls-bottom { display: none; }
+        .controls-inner { max-width: min(560px, 100%); margin: 0 auto; display: flex; flex-direction: column; gap: 10px; width: 100%; box-sizing: border-box; }
+        .controls-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
+        .controls-row.tts-options label { font-size: 0.8rem; opacity: 0.9; display: flex; align-items: center; gap: 6px; }
+        .controls-row.tts-options select { max-width: 200px; border-radius: 8px; padding: 6px 8px; border: none; background: #333; color: #fff; }
+        .controls-row.tts-options input[type="range"] { width: 100px; vertical-align: middle; }
+        .controls-row.page-jump label { font-size: 0.8rem; opacity: 0.9; display: flex; align-items: center; gap: 6px; }
+        .controls-row.page-jump input[type="number"] { width: 76px; border-radius: 8px; padding: 6px 8px; border: none; background: #333; color: #fff; font-size: 0.9rem; }
+        .controls-row.page-jump input[type="number"]::-webkit-outer-spin-button,
+        .controls-row.page-jump input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .controls-row.page-jump input[type="number"] { -moz-appearance: textfield; }
+        .btn { border: none; border-radius: 20px; padding: 8px 15px; cursor: pointer; font-weight: 600; transition: 0.2s; font-size: 0.9rem; }
+        .btn-main { background: var(--accent); color: white; }
+        .btn-ghost { background: rgba(255,255,255,0.12); color: white; }
+        .btn-tts { background: #27ae60; color: white; min-width: 100px; }
+        .btn-stop { background: #e74c3c; color: white; }
+        .btn-tts:disabled,
+        .btn-stop:disabled { opacity: 0.45; cursor: not-allowed; }
+        .hidden { display: none !important; }
+        #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.75); color: white; padding: 20px; border-radius: 10px; z-index: 2000; }
+        .sr-hint { font-size: 0.7rem; opacity: 0.75; width: 100%; text-align: center; }
+        .nowrap { white-space: nowrap; }
+        #cloud-library { max-width: 160px; border-radius: 8px; padding: 6px 8px; border: none; background: rgba(255,255,255,0.15); color: #fff; font-size: 0.8rem; }
+        #cloud-library option { color: #111; }
+        #cloud-badge { font-size: 0.72rem; opacity: 0.85; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #btn-cloud-save:disabled,
+        #btn-cloud-delete:disabled { opacity: 0.45; cursor: not-allowed; }
+        #tts-toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(10px); background: rgba(30,30,30,0.92); color: #fff; padding: 9px 20px; border-radius: 20px; font-size: 0.82rem; pointer-events: none; opacity: 0; transition: opacity 0.25s, transform 0.25s; z-index: 3000; white-space: nowrap; }
+        #tts-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .settings-wrap { position: relative; z-index: 4100; }
+        .settings-panel { display: none; position: absolute; right: 0; top: 100%; margin-top: 8px; min-width: min(272px, calc(100vw - 24px)); max-width: calc(100vw - 24px); background: var(--panel); color: var(--text); border-radius: 10px; box-shadow: 0 10px 32px rgba(0,0,0,0.22); padding: 12px 14px; z-index: 4000; text-align: left; box-sizing: border-box; }
+        .settings-panel.open { display: block; }
+        .settings-panel label { display: flex; align-items: flex-start; gap: 10px; font-size: 0.88rem; font-weight: 600; margin: 10px 0; cursor: pointer; }
+        .settings-panel input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+        .settings-panel .panel-hint { font-size: 0.72rem; opacity: 0.72; margin: 2px 0 4px 26px; font-weight: 400; line-height: 1.35; }
+        #btn-show-chrome { display: none; position: fixed; left: max(12px, env(safe-area-inset-left, 0px)); bottom: max(12px, env(safe-area-inset-bottom, 0px)); z-index: 3500; border: none; border-radius: 999px; padding: 12px 16px; cursor: pointer; font-weight: 600; background: var(--accent); color: #fff; box-shadow: 0 4px 18px rgba(0,0,0,0.35); }
+        body.ui-chrome-hidden #btn-show-chrome { display: block; }
+        @media (max-width: 640px) {
+            header { flex-direction: column; align-items: stretch; }
+            header > span:first-of-type { text-align: center; }
+            .header-actions { justify-content: center; }
+            #viewer-container { padding: 12px 10px; padding-bottom: max(210px, calc(46vh + env(safe-area-inset-bottom, 0px))); }
+            body.ui-chrome-hidden #viewer-container { padding-bottom: max(20px, env(safe-area-inset-bottom, 0px)); }
+            .controls-row.tts-options { flex-direction: column; align-items: stretch; gap: 10px; }
+            .controls-row.tts-options label { justify-content: space-between; width: 100%; }
+            .controls-row.tts-options select { max-width: none; width: 100%; }
+            .controls-row.tts-options input[type="range"] { width: 100%; max-width: none; flex: 1; }
+            #cloud-library { max-width: 100%; }
+            .controls-row.page-jump .nowrap { white-space: normal; }
+        }
+        @media (min-width: 1400px) {
+            .controls-inner { max-width: min(720px, 96vw); }
+            #tts-text-panel { max-width: min(900px, 96vw); }
+        }
+        @media (pointer: coarse) {
+            .btn { min-height: 44px; padding: 10px 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading" class="hidden">Carregando PDF...</div>
+
+<header>
+    <span><b>ReadEra</b> Web Pro</span>
+    <div class="header-actions">
+        <span id="cloud-badge" class="hidden" title="Estado da nuvem"></span>
+        <select id="cloud-library" class="hidden" title="Abrir PDF salvo na nuvem" aria-label="Biblioteca na nuvem"></select>
+        <button type="button" class="btn btn-ghost hidden" id="btn-cloud-save" title="Enviar PDF atual para o Supabase">☁️ Guardar</button>
+        <button type="button" class="btn btn-stop hidden" id="btn-cloud-delete" title="Apagar da nuvem o PDF que está aberto (ficheiro + registo na base)">🗑 Excluir da nuvem</button>
+        <div class="settings-wrap">
+            <button type="button" class="btn btn-ghost" id="btn-settings" title="Configurações de leitura" aria-expanded="false" aria-controls="settings-panel">⚙️ Config</button>
+            <div id="settings-panel" class="settings-panel" role="region" aria-label="Configurações de leitura">
+                <label><input type="checkbox" id="opt-hide-chrome"> Ocultar barras (PDF em quase tela cheia)</label>
+                <p class="panel-hint">Esconde o cabeçalho e a barra inferior. Use o botão flutuante “Mostrar controles” para voltar.</p>
+                <label><input type="checkbox" id="opt-reading-mode"> Modo leitura</label>
+                <p class="panel-hint">Fundo mais calmo e página com aparência de leitor focado no texto.</p>
+                <label><input type="checkbox" id="opt-sync-panel" checked> Painel de texto abaixo do PDF</label>
+                <p class="panel-hint">Mostra o mesmo trecho em texto corrido (complementa o destaque sobre o PDF).</p>
+                <label id="opt-auto-cloud-wrap"><input type="checkbox" id="opt-auto-cloud" checked> Enviar PDF para a nuvem ao abrir</label>
+                <p class="panel-hint">Com a nuvem ligada, cada ficheiro aberto aqui é gravado no Supabase (Storage + registo na base). Assim pode continuar a ler noutro aparelho ou browser com a mesma sessão.</p>
+                <label id="opt-resume-cloud-wrap"><input type="checkbox" id="opt-resume-cloud" checked> Ao iniciar, abrir o último PDF da nuvem</label>
+                <p class="panel-hint">Usa o último documento em que ficou, guardado na base (não depende da memória RAM do separador).</p>
+            </div>
+        </div>
+        <button type="button" class="btn btn-ghost" id="btn-theme" title="Tema claro/escuro">🌙 Tema</button>
+        <button type="button" class="btn btn-main" onclick="document.getElementById('file-input').click()">📂 Abrir PDF</button>
+    </div>
+    <input type="file" id="file-input" accept="application/pdf" class="hidden">
+</header>
+
+<main id="viewer-container">
+    <div id="welcome">
+        <h2 style="text-align: center; margin-top: 50px;">Pronto para ler?</h2>
+        <p style="text-align: center; opacity: 0.7;">Clique no botão "Abrir" acima.</p>
+    </div>
+    <div id="pdf-render-area"></div>
+    <div id="tts-text-panel" class="hidden" aria-live="polite">
+        <div class="panel-title">Texto sincronizado com a leitura em voz alta</div>
+        <div id="tts-live-text"></div>
+    </div>
+</main>
+
+<div id="tts-toast" role="status" aria-live="polite"></div>
+<button type="button" id="btn-show-chrome" title="Mostrar barras de ferramentas">☰ Mostrar controles</button>
+
+<div id="nav-controls" class="controls-bottom hidden">
+    <div class="controls-inner">
+        <div class="controls-row">
+            <button type="button" class="btn" onclick="changePage(-1)" style="background:#444; color:white;">◀ Pág.</button>
+            <button type="button" id="btn-tts" class="btn btn-tts" onclick="toggleTTS()">🔊 Ouvir</button>
+            <span id="page-info">0 / 0</span>
+            <button type="button" class="btn" onclick="changePage(1)" style="background:#444; color:white;">Pág. ▶</button>
+        </div>
+        <div class="controls-row page-jump">
+            <label class="nowrap">Ir para pág. <input type="number" id="page-jump-input" min="1" step="1" inputmode="numeric" placeholder="nº" title="Digite o número (1 … total) e Enter ou Ir"></label>
+            <button type="button" class="btn" id="btn-page-jump" style="background:#555; color:#fff;">Ir</button>
+        </div>
+        <div class="controls-row tts-options">
+            <label>Voz <select id="voice-select" title="Voz do sistema"></select></label>
+            <label>Veloc. <input type="range" id="rate-range" min="0.5" max="1.75" step="0.05" value="1"> <span id="rate-label">1×</span></label>
+            <label class="nowrap"><input type="checkbox" id="continuous-read" checked> Ler em sequência</label>
+        </div>
+        <p class="sr-hint">Atalhos: ← → mudam página · Espaço ouvir/parar · Ir para pág.: número + Enter ou Ir</p>
+    </div>
+</div>
+
+<script>
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+    let pdfDoc = null, pageNum = 1, isRendering = false, isReading = false;
+    let synth = window.speechSynthesis;
+    let currentUtterance = null;
+    let fullPageText = '';
+    let speakLock = false;
+    let ttsStopRequested = false;
+    let readeraSb = null;
+    let pdfCacheBytes = null;
+    let cloudDocumentId = null;
+    let lastOpenedFileName = '';
+    let progressSaveTimer = null;
+    let cloudUiBound = false;
+    let cloudSyncInFlight = false;
+    const LS_AUTO_CLOUD = 'readera-auto-cloud';
+    const LS_RESUME_CLOUD = 'readera-resume-cloud';
+    const LS_LAST_CLOUD_DOC = 'readera_last_cloud_doc_id';
+    let ttsCharRanges = [];
+    let ttsPageCache = { pageNum: null, text: '', ranges: [] };
+    let ttsWatchdogTimer = null;
+    let pdfTextLayerSpans = null;
+    let ttsResumeCharOffset = 0;
+    let ttsResumePageNum = null;
+    let ttsLastFullTextLen = 0;
+    let ttsAbsCharEnd = 0;
+    let ttsScrollHighlightRaf = null;
+
+    const fileInput = document.getElementById('file-input');
+    const loading = document.getElementById('loading');
+    const voiceSelect = document.getElementById('voice-select');
+    const rateRange = document.getElementById('rate-range');
+    const rateLabel = document.getElementById('rate-label');
+    const ttsPanel = document.getElementById('tts-text-panel');
+    const ttsLiveText = document.getElementById('tts-live-text');
+
+    function escapeHtml(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function applyTheme(dark) {
+        document.body.classList.toggle('dark', dark);
+        localStorage.setItem('readera-theme', dark ? 'dark' : 'light');
+        document.getElementById('btn-theme').textContent = dark ? '☀️ Tema' : '🌙 Tema';
+    }
+    document.getElementById('btn-theme').addEventListener('click', () => {
+        applyTheme(!document.body.classList.contains('dark'));
+        schedulePushUserPreferences();
+    });
+    applyTheme(localStorage.getItem('readera-theme') === 'dark');
+
+    function voiceKey(v) {
+        return v.voiceURI || v.name + '|' + v.lang;
+    }
+
+    function populateVoices() {
+        const voices = synth.getVoices().filter(v => v.lang);
+        const prev = voiceSelect.value;
+        voiceSelect.innerHTML = '';
+        voices.forEach((v) => {
+            const opt = document.createElement('option');
+            opt.value = voiceKey(v);
+            opt.textContent = (v.name || 'Voz') + ' (' + v.lang + ')';
+            voiceSelect.appendChild(opt);
+        });
+        const keys = new Set(Array.from(voiceSelect.options).map(o => o.value));
+        if (prev && keys.has(prev)) voiceSelect.value = prev;
+        else {
+            const pt = voices.find(v => /^pt/i.test(v.lang));
+            if (pt) voiceSelect.value = voiceKey(pt);
+        }
+    }
+    populateVoices();
+    if (typeof speechSynthesis !== 'undefined') {
+        speechSynthesis.onvoiceschanged = () => {
+            populateVoices();
+        };
+    }
+    document.getElementById('continuous-read').addEventListener('change', schedulePushUserPreferences);
+    voiceSelect.addEventListener('change', schedulePushUserPreferences);
+
+    rateRange.addEventListener('input', () => {
+        rateLabel.textContent = Number(rateRange.value).toFixed(2).replace(/\.?0+$/, '') + '×';
+        if (currentUtterance) currentUtterance.rate = Number(rateRange.value);
+        schedulePushUserPreferences();
+    });
+    rateLabel.textContent = rateRange.value + '×';
+
+    function getSelectedVoice() {
+        const voices = synth.getVoices().filter(v => v.lang);
+        const val = voiceSelect.value;
+        return voices.find(v => voiceKey(v) === val) || voices[0];
+    }
+
+    function buildTtsTextAndRanges(items) {
+        let text = '';
+        const ranges = [];
+        for (let i = 0; i < items.length; i++) {
+            const s = items[i].str != null ? String(items[i].str) : '';
+            if (i > 0) text += ' ';
+            const start = text.length;
+            text += s;
+            ranges.push({ start, end: text.length, itemIndex: i });
+        }
+        return { text, ranges };
+    }
+
+    function clearPdfHighlight() {
+        if (!pdfTextLayerSpans) return;
+        Object.values(pdfTextLayerSpans).forEach((el) => {
+            if (el && el.classList) el.classList.remove('tts-active');
+        });
+    }
+
+    function updatePdfReadHighlight(charIndex, charLength) {
+        clearPdfHighlight();
+        if (!pdfTextLayerSpans || !ttsCharRanges.length) return;
+        const start = Math.max(0, charIndex | 0);
+        const end = start + Math.max(1, charLength | 0);
+        const seen = new Set();
+        for (const r of ttsCharRanges) {
+            if (r.end > start && r.start < end && pdfTextLayerSpans[r.itemIndex]) {
+                if (!seen.has(r.itemIndex)) {
+                    seen.add(r.itemIndex);
+                    pdfTextLayerSpans[r.itemIndex].classList.add('tts-active');
+                }
+            }
+        }
+    }
+
+    function scrollTtsHighlightIntoView() {
+        if (ttsScrollHighlightRaf != null) return;
+        ttsScrollHighlightRaf = requestAnimationFrame(() => {
+            ttsScrollHighlightRaf = null;
+            const span = document.querySelector('#pdf-render-area .text-layer span.tts-active');
+            if (span) {
+                span.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+                return;
+            }
+            const mark = document.querySelector('#tts-live-text mark');
+            if (mark) {
+                mark.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+            }
+        });
+    }
+
+    function buildPdfTextLayer(viewport, textContent, textLayerDiv) {
+        const Util = pdfjsLib.Util;
+        const spans = Object.create(null);
+        textLayerDiv.textContent = '';
+        const items = textContent.items || [];
+        items.forEach((item, idx) => {
+            const str = item.str != null ? String(item.str) : '';
+            if (!str.length) return;
+            const tx = Util.transform(viewport.transform, item.transform);
+            const fontHeight = Math.hypot(tx[2], tx[3]) || 12;
+            if (fontHeight < 0.5) return;
+            const angle = Math.atan2(tx[1], tx[0]);
+            const left = tx[4];
+            const top = tx[5];
+            const horizScale = Math.hypot(tx[0], tx[1]) || 1;
+            const wFromPdf = (item.width != null ? item.width : 0) * horizScale;
+            const wGuess = str.length * fontHeight * 0.52;
+            const spanW = Math.max(wFromPdf, wGuess, fontHeight * 0.35);
+
+            const span = document.createElement('span');
+            span.textContent = str;
+            span.dataset.itemIndex = String(idx);
+            span.style.left = (left - 1) + 'px';
+            span.style.top = (top - fontHeight * 1.02) + 'px';
+            span.style.fontSize = fontHeight + 'px';
+            span.style.lineHeight = '1';
+            span.style.fontFamily = 'sans-serif';
+            span.style.minWidth = spanW + 'px';
+            if (Math.abs(angle) > 0.003) span.style.transform = 'rotate(' + angle + 'rad)';
+            textLayerDiv.appendChild(span);
+            spans[idx] = span;
+        });
+        return spans;
+    }
+
+    function syncPanelEnabled() {
+        const el = document.getElementById('opt-sync-panel');
+        return !el || el.checked;
+    }
+
+    function updateHighlight(charIndex, charLength) {
+        updatePdfReadHighlight(charIndex, charLength);
+        if (fullPageText && syncPanelEnabled()) {
+            const start = Math.max(0, charIndex | 0);
+            const len = Math.max(0, charLength | 0);
+            const a = escapeHtml(fullPageText.slice(0, start));
+            const mid = escapeHtml(fullPageText.slice(start, start + len));
+            const b = escapeHtml(fullPageText.slice(start + len));
+            ttsLiveText.innerHTML = a + '<mark>' + mid + '</mark>' + b;
+        }
+        scrollTtsHighlightIntoView();
+    }
+
+    function applyUiPrefs() {
+        const hide = localStorage.getItem('readera-hide-chrome') === '1';
+        const read = localStorage.getItem('readera-reading-mode') === '1';
+        const sync = localStorage.getItem('readera-sync-panel') !== '0';
+        const autoCloud = localStorage.getItem(LS_AUTO_CLOUD) !== '0';
+        const resumeCloud = localStorage.getItem(LS_RESUME_CLOUD) !== '0';
+        document.body.classList.toggle('ui-chrome-hidden', hide);
+        document.body.classList.toggle('reading-mode', read);
+        const h = document.getElementById('opt-hide-chrome');
+        const r = document.getElementById('opt-reading-mode');
+        const s = document.getElementById('opt-sync-panel');
+        const ac = document.getElementById('opt-auto-cloud');
+        const rc = document.getElementById('opt-resume-cloud');
+        if (h) h.checked = hide;
+        if (r) r.checked = read;
+        if (s) s.checked = sync;
+        if (ac) ac.checked = autoCloud;
+        if (rc) rc.checked = resumeCloud;
+    }
+
+    function adjustSettingsPanelPos() {
+        const panel = document.getElementById('settings-panel');
+        const btn = document.getElementById('btn-settings');
+        if (!panel || !btn) return;
+        const clearMobileLayout = () => {
+            ['position', 'left', 'right', 'top', 'width', 'maxWidth', 'minWidth', 'maxHeight', 'marginTop', 'overflowY'].forEach((p) => panel.style.removeProperty(p));
+        };
+        if (!panel.classList.contains('open')) {
+            clearMobileLayout();
+            return;
+        }
+        if (window.innerWidth >= 640) {
+            clearMobileLayout();
+            return;
+        }
+        const pad = 10;
+        const r = btn.getBoundingClientRect();
+        panel.style.position = 'fixed';
+        panel.style.left = pad + 'px';
+        panel.style.right = pad + 'px';
+        panel.style.width = 'auto';
+        panel.style.minWidth = '0';
+        panel.style.maxWidth = 'none';
+        panel.style.marginTop = '0';
+        panel.style.top = (r.bottom + 8) + 'px';
+        panel.style.maxHeight = Math.max(140, window.innerHeight - r.bottom - 20) + 'px';
+        panel.style.overflowY = 'auto';
+    }
+
+    function wireSettingsUi() {
+        const btn = document.getElementById('btn-settings');
+        const panel = document.getElementById('settings-panel');
+        const hideCb = document.getElementById('opt-hide-chrome');
+        const readCb = document.getElementById('opt-reading-mode');
+        const syncCb = document.getElementById('opt-sync-panel');
+        const autoCloudCb = document.getElementById('opt-auto-cloud');
+        const resumeCloudCb = document.getElementById('opt-resume-cloud');
+        const showChrome = document.getElementById('btn-show-chrome');
+        if (!btn || !panel || !hideCb || !readCb || !syncCb || !showChrome) return;
+
+        function closePanel() {
+            panel.classList.remove('open');
+            btn.setAttribute('aria-expanded', 'false');
+            adjustSettingsPanelPos();
+        }
+        function togglePanel(e) {
+            e.stopPropagation();
+            const open = panel.classList.toggle('open');
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            adjustSettingsPanelPos();
+        }
+        btn.addEventListener('click', togglePanel);
+        window.addEventListener('resize', () => adjustSettingsPanelPos());
+        document.addEventListener('click', (e) => {
+            if (!panel.classList.contains('open')) return;
+            if (e.target.closest('.settings-wrap')) return;
+            closePanel();
+        });
+
+        hideCb.addEventListener('change', () => {
+            localStorage.setItem('readera-hide-chrome', hideCb.checked ? '1' : '0');
+            document.body.classList.toggle('ui-chrome-hidden', hideCb.checked);
+        });
+        readCb.addEventListener('change', () => {
+            localStorage.setItem('readera-reading-mode', readCb.checked ? '1' : '0');
+            document.body.classList.toggle('reading-mode', readCb.checked);
+        });
+        syncCb.addEventListener('change', () => {
+            localStorage.setItem('readera-sync-panel', syncCb.checked ? '1' : '0');
+            if (!syncCb.checked && ttsPanel) ttsPanel.classList.add('hidden');
+        });
+        if (autoCloudCb) {
+            autoCloudCb.addEventListener('change', () => {
+                localStorage.setItem(LS_AUTO_CLOUD, autoCloudCb.checked ? '1' : '0');
+            });
+        }
+        if (resumeCloudCb) {
+            resumeCloudCb.addEventListener('change', () => {
+                localStorage.setItem(LS_RESUME_CLOUD, resumeCloudCb.checked ? '1' : '0');
+            });
+        }
+        showChrome.addEventListener('click', () => {
+            hideCb.checked = false;
+            localStorage.setItem('readera-hide-chrome', '0');
+            document.body.classList.remove('ui-chrome-hidden');
+        });
+
+        applyUiPrefs();
+    }
+
+    wireSettingsUi();
+
+    function resetTtsBookmark() {
+        ttsResumeCharOffset = 0;
+        ttsResumePageNum = null;
+        ttsLastFullTextLen = 0;
+        ttsAbsCharEnd = 0;
+    }
+
+    function updateTtsButtonLabel() {
+        const btn = document.getElementById('btn-tts');
+        if (!btn || isReading || speakLock) return;
+        const canContinue = pdfDoc && ttsResumePageNum === pageNum && ttsResumeCharOffset > 0
+            && ttsLastFullTextLen > 0 && ttsResumeCharOffset < ttsLastFullTextLen;
+        btn.textContent = canContinue ? '▶ Continuar' : '🔊 Ouvir';
+        btn.className = 'btn btn-tts';
+    }
+
+    function persistLastCloudDocId(id) {
+        try {
+            if (id) localStorage.setItem(LS_LAST_CLOUD_DOC, id);
+            else localStorage.removeItem(LS_LAST_CLOUD_DOC);
+        } catch (e) { console.warn(e); }
+    }
+
+    function updateCloudPrefsVisibility() {
+        const on = !!readeraSb;
+        ['opt-auto-cloud-wrap', 'opt-resume-cloud-wrap'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = on ? '' : 'none';
+        });
+    }
+
+    function scheduleCloudProgress() {
+        if (!readeraSb || !cloudDocumentId || !pdfDoc) return;
+        clearTimeout(progressSaveTimer);
+        progressSaveTimer = setTimeout(async () => {
+            try {
+                await readeraSb.from('documents').update({
+                    last_page: pageNum,
+                    num_pages: pdfDoc.numPages
+                }).eq('id', cloudDocumentId);
+            } catch (err) {
+                console.warn('Supabase: progresso não salvo', err);
+            }
+        }, 900);
+    }
+
+    function updateCloudChrome() {
+        const saveBtn = document.getElementById('btn-cloud-save');
+        const delBtn = document.getElementById('btn-cloud-delete');
+        const lib = document.getElementById('cloud-library');
+        if (!saveBtn || !lib) return;
+        const on = !!readeraSb;
+        lib.classList.toggle('hidden', !on);
+        saveBtn.classList.toggle('hidden', !on || !pdfDoc);
+        saveBtn.disabled = !on || !pdfDoc || !pdfCacheBytes || !!cloudDocumentId || cloudSyncInFlight;
+        if (delBtn) {
+            delBtn.classList.toggle('hidden', !on || !pdfDoc);
+            delBtn.disabled = !on || !pdfDoc || !cloudDocumentId || cloudSyncInFlight;
+        }
+        updateCloudPrefsVisibility();
+    }
+
+    async function initSupabaseClient() {
+        const cfg = window.READERA_SUPABASE;
+        const badge = document.getElementById('cloud-badge');
+        if (!cfg || !cfg.url || !cfg.anonKey) {
+            if (badge) {
+                badge.textContent = 'Nuvem: off';
+                badge.classList.remove('hidden');
+            }
+            updateCloudPrefsVisibility();
+            return;
+        }
+        try {
+            const sb = window.supabase;
+            if (!sb || typeof sb.createClient !== 'function') {
+                throw new Error('Biblioteca supabase-js não carregou (verifique a rede).');
+            }
+            readeraSb = sb.createClient(cfg.url, cfg.anonKey, {
+                auth: {
+                    persistSession: false,
+                    autoRefreshToken: false,
+                    detectSessionInUrl: false
+                }
+            });
+            if (badge) {
+                badge.textContent = 'Nuvem: ligada (sem login)';
+                badge.title = 'Apenas chave pública; PDFs em Storage + metadados na tabela documents.';
+                badge.classList.remove('hidden');
+            }
+            await refreshCloudLibrary();
+            updateCloudChrome();
+            if (!cloudUiBound) {
+                cloudUiBound = true;
+                document.getElementById('btn-cloud-save').addEventListener('click', savePdfToCloud);
+                const delBtn = document.getElementById('btn-cloud-delete');
+                if (delBtn) delBtn.addEventListener('click', deleteCurrentCloudDocument);
+                document.getElementById('cloud-library').addEventListener('change', onCloudLibraryChange);
+            }
+            await tryResumeLastCloudDocument();
+        } catch (err) {
+            readeraSb = null;
+            const msg = String((err && (err.message || err.error_description)) || '');
+            if (badge) {
+                badge.classList.remove('hidden');
+                badge.textContent = 'Nuvem: erro (consola)';
+                badge.title = msg ? msg.slice(0, 200) : '';
+                console.error(err);
+                alert('Nuvem: falhou ao ligar. Confira config.js, rede e aplique a migração readera_anon_no_login no Supabase.\n\n' + msg.slice(0, 180));
+            }
+        } finally {
+            updateCloudPrefsVisibility();
+        }
+    }
+
+    async function pullUserPreferences() {
+        return;
+    }
+
+    function schedulePushUserPreferences() {
+        return;
+    }
+
+    async function pushUserPreferences() {
+        return;
+    }
+
+    async function refreshCloudLibrary() {
+        const sel = document.getElementById('cloud-library');
+        if (!readeraSb || !sel) return;
+        const { data, error } = await readeraSb.from('documents')
+            .select('id, title, last_page, updated_at')
+            .order('updated_at', { ascending: false })
+            .limit(50);
+        const prev = sel.value;
+        sel.innerHTML = '';
+        const opt0 = document.createElement('option');
+        opt0.value = '';
+        opt0.textContent = '☁️ Meus PDFs…';
+        sel.appendChild(opt0);
+        if (error) {
+            console.warn(error);
+            return;
+        }
+        (data || []).forEach((row) => {
+            const o = document.createElement('option');
+            o.value = row.id;
+            o.textContent = row.title || row.id;
+            o.title = 'Última página: ' + (row.last_page || 1);
+            sel.appendChild(o);
+        });
+        if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+    }
+
+    async function onCloudLibraryChange(e) {
+        const id = e.target.value;
+        if (!id || !readeraSb) return;
+        loading.classList.remove('hidden');
+        try {
+            const { data: row, error } = await readeraSb.from('documents').select('id, title, storage_path, last_page').eq('id', id).single();
+            if (error || !row) throw error || new Error('Documento não encontrado');
+            await openCloudDocumentFromRow(row, true);
+        } catch (err) {
+            console.error(err);
+            alert('Não foi possível abrir da nuvem: ' + (err.message || err));
+        } finally {
+            loading.classList.add('hidden');
+        }
+    }
+
+    async function openCloudDocumentFromRow(row, resetSelectValue) {
+        const { data: blob, error: derr } = await readeraSb.storage.from('pdfs').download(row.storage_path);
+        if (derr || !blob) throw derr || new Error('Download falhou');
+        const buf = await blob.arrayBuffer();
+        lastOpenedFileName = row.title || 'documento.pdf';
+        await loadPdfFromArrayBuffer(buf, { documentId: row.id, initialPage: row.last_page || 1 });
+        if (resetSelectValue) {
+            const sel = document.getElementById('cloud-library');
+            if (sel) sel.value = '';
+        }
+    }
+
+    async function tryResumeLastCloudDocument() {
+        if (!readeraSb) return;
+        if (localStorage.getItem(LS_RESUME_CLOUD) === '0') return;
+        const id = localStorage.getItem(LS_LAST_CLOUD_DOC);
+        if (!id) return;
+        const { data: row, error } = await readeraSb.from('documents').select('id, title, storage_path, last_page').eq('id', id).maybeSingle();
+        if (error || !row) {
+            persistLastCloudDocId(null);
+            return;
+        }
+        loading.classList.remove('hidden');
+        try {
+            await openCloudDocumentFromRow(row, false);
+        } catch (err) {
+            console.warn('Retoma nuvem:', err);
+            persistLastCloudDocId(null);
+        } finally {
+            loading.classList.add('hidden');
+        }
+    }
+
+    async function uploadPdfToCloudInternal(silent) {
+        if (!readeraSb || !pdfDoc || !pdfCacheBytes) throw new Error('Sem PDF para enviar');
+        if (cloudDocumentId) return null;
+        const docId = crypto.randomUUID();
+        const path = 'readera/' + docId + '.pdf';
+        const { error: upErr } = await readeraSb.storage.from('pdfs').upload(path, pdfCacheBytes, {
+            contentType: 'application/pdf',
+            upsert: false
+        });
+        if (upErr) throw upErr;
+        const title = lastOpenedFileName || 'documento.pdf';
+        const { data: ins, error: insErr } = await readeraSb.from('documents').insert({
+            id: docId,
+            title: title,
+            storage_path: path,
+            bytes: pdfCacheBytes.byteLength,
+            num_pages: pdfDoc.numPages,
+            last_page: pageNum
+        }).select('id').single();
+        if (insErr) throw insErr;
+        cloudDocumentId = ins.id;
+        persistLastCloudDocId(ins.id);
+        await refreshCloudLibrary();
+        updateCloudChrome();
+        if (!silent) alert('PDF guardado na nuvem.');
+        return ins;
+    }
+
+    async function savePdfToCloud() {
+        if (!readeraSb || !pdfDoc || !pdfCacheBytes) return;
+        if (cloudDocumentId) return;
+        loading.classList.remove('hidden');
+        try {
+            await uploadPdfToCloudInternal(false);
+        } catch (err) {
+            console.error(err);
+            alert('Erro ao guardar na nuvem: ' + (err.message || err));
+        } finally {
+            loading.classList.add('hidden');
+        }
+    }
+
+    async function deleteCurrentCloudDocument() {
+        if (!readeraSb || !cloudDocumentId || !pdfDoc) return;
+        const label = lastOpenedFileName || 'este documento';
+        if (!confirm('Remover da nuvem?\n\n' + label + '\n\nO ficheiro no Storage e o registo na base serão apagados. O PDF continua aberto neste separador (só deixa de estar sincronizado).')) return;
+        const id = cloudDocumentId;
+        loading.classList.remove('hidden');
+        try {
+            const { data: row, error: fetchErr } = await readeraSb.from('documents').select('storage_path').eq('id', id).single();
+            if (fetchErr || !row || !row.storage_path) throw fetchErr || new Error('Metadados do documento não encontrados');
+            const { error: rmErr } = await readeraSb.storage.from('pdfs').remove([row.storage_path]);
+            if (rmErr) throw rmErr;
+            const { error: delErr } = await readeraSb.from('documents').delete().eq('id', id);
+            if (delErr) throw delErr;
+            cloudDocumentId = null;
+            if (localStorage.getItem(LS_LAST_CLOUD_DOC) === id) persistLastCloudDocId(null);
+            stopTTS({ resetBookmark: true });
+            await refreshCloudLibrary();
+            updateCloudChrome();
+            alert('PDF removido da nuvem.');
+        } catch (err) {
+            console.error(err);
+            alert('Erro ao apagar na nuvem: ' + (err.message || err));
+        } finally {
+            loading.classList.add('hidden');
+        }
+    }
+
+    async function attemptAutoCloudSync() {
+        if (!readeraSb || cloudDocumentId || !pdfCacheBytes || !pdfDoc) return;
+        if (localStorage.getItem(LS_AUTO_CLOUD) === '0') return;
+        if (cloudSyncInFlight) return;
+        cloudSyncInFlight = true;
+        updateCloudChrome();
+        const badge = document.getElementById('cloud-badge');
+        if (badge) {
+            badge.textContent = 'Nuvem: a enviar…';
+            badge.classList.remove('hidden');
+        }
+        try {
+            await uploadPdfToCloudInternal(true);
+            if (badge) badge.textContent = 'Nuvem: ligada';
+        } catch (err) {
+            console.warn('Auto-nuvem:', err);
+            if (badge) badge.textContent = 'Nuvem: ligada (toque em Guardar)';
+        } finally {
+            cloudSyncInFlight = false;
+            updateCloudChrome();
+        }
+    }
+
+    async function loadPdfFromArrayBuffer(arrayBuffer, opts) {
+        loading.classList.remove('hidden');
+        try {
+            stopTTS();
+            const copy = arrayBuffer.slice ? arrayBuffer.slice(0) : arrayBuffer;
+            const typedarray = new Uint8Array(copy);
+            pdfCacheBytes = typedarray;
+            pdfDoc = await pdfjsLib.getDocument({ data: typedarray }).promise;
+            cloudDocumentId = opts && opts.documentId ? opts.documentId : null;
+            document.getElementById('welcome').classList.add('hidden');
+            document.getElementById('nav-controls').classList.remove('hidden');
+            const want = opts && opts.initialPage ? opts.initialPage : 1;
+            pageNum = Math.min(Math.max(1, want), pdfDoc.numPages);
+            await renderPage(pageNum);
+            updateCloudChrome();
+            if (cloudDocumentId) persistLastCloudDocId(cloudDocumentId);
+            if (!cloudDocumentId && pdfCacheBytes && readeraSb && localStorage.getItem(LS_AUTO_CLOUD) !== '0') {
+                void attemptAutoCloudSync();
+            }
+        } catch (err) {
+            alert('Erro ao abrir PDF: ' + err.message);
+        } finally {
+            loading.classList.add('hidden');
+        }
+    }
+
+    fileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        persistLastCloudDocId(null);
+        lastOpenedFileName = file.name;
+        const reader = new FileReader();
+        reader.onload = async function() {
+            await loadPdfFromArrayBuffer(this.result, { initialPage: 1 });
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    async function renderPage(num, skipStopTts) {
+        if (isReading && !skipStopTts) stopTTS();
+        isRendering = true;
+        ttsPageCache = { pageNum: null, text: '', ranges: [] };
+        const btnTts = document.getElementById('btn-tts');
+        if (btnTts) btnTts.disabled = true;
+        clearPdfHighlight();
+        ttsCharRanges = [];
+        pdfTextLayerSpans = null;
+
+        try {
+        const page = await pdfDoc.getPage(num);
+        const viewer = document.getElementById('viewer-container');
+        const rect = viewer.getBoundingClientRect();
+        const innerW = typeof window.innerWidth === 'number' ? window.innerWidth : rect.width;
+        const useW = viewer.clientWidth > 80 ? viewer.clientWidth : Math.max(Math.floor(rect.width), Math.floor(innerW * 0.96));
+        const maxW = Math.max(280, Math.min(useW, innerW) - 32);
+        const vp1 = page.getViewport({ scale: 1 });
+        const fit = maxW / vp1.width;
+        const sharpen = window.devicePixelRatio > 1 ? 1.22 : 1;
+        let scale = fit * sharpen;
+        let viewport = page.getViewport({ scale });
+        if (viewport.width > maxW + 0.5) {
+            scale = fit;
+            viewport = page.getViewport({ scale });
+        }
+
+        const renderArea = document.getElementById('pdf-render-area');
+        renderArea.innerHTML = '';
+
+        const wrap = document.createElement('div');
+        wrap.className = 'pdf-page-wrap';
+        const inner = document.createElement('div');
+        inner.className = 'pdf-page-inner';
+        inner.style.position = 'relative';
+        inner.style.width = viewport.width + 'px';
+        inner.style.height = viewport.height + 'px';
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        const textLayer = document.createElement('div');
+        textLayer.className = 'text-layer';
+        textLayer.setAttribute('aria-hidden', 'true');
+        textLayer.style.width = viewport.width + 'px';
+        textLayer.style.height = viewport.height + 'px';
+
+        inner.appendChild(canvas);
+        inner.appendChild(textLayer);
+        wrap.appendChild(inner);
+        renderArea.appendChild(wrap);
+
+        const k = Math.min(1, maxW / viewport.width);
+        wrap.style.width = (viewport.width * k) + 'px';
+        wrap.style.height = (viewport.height * k) + 'px';
+        inner.style.transform = 'scale(' + k + ')';
+        inner.style.transformOrigin = 'top left';
+
+        await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+        const textContent = await page.getTextContent();
+        pdfTextLayerSpans = buildPdfTextLayer(viewport, textContent, textLayer);
+        const ttsBuilt = buildTtsTextAndRanges(textContent.items || []);
+        ttsPageCache = { pageNum: num, text: ttsBuilt.text, ranges: ttsBuilt.ranges };
+
+        document.getElementById('page-info').textContent = num + ' / ' + pdfDoc.numPages;
+        document.getElementById('viewer-container').scrollTop = 0;
+        scheduleCloudProgress();
+        updateTtsButtonLabel();
+        syncPageJumpInput();
+        } finally {
+            isRendering = false;
+            if (btnTts) btnTts.disabled = false;
+        }
+    }
+
+    function syncPageJumpInput() {
+        const el = document.getElementById('page-jump-input');
+        if (!el || !pdfDoc) return;
+        el.min = '1';
+        el.max = String(pdfDoc.numPages);
+        el.value = String(pageNum);
+    }
+
+    function goToPage(target) {
+        if (!pdfDoc || isRendering) return;
+        const n = Math.floor(Number(target));
+        if (!Number.isFinite(n)) {
+            alert('Digite um número de página válido.');
+            syncPageJumpInput();
+            return;
+        }
+        if (n < 1 || n > pdfDoc.numPages) {
+            alert('Página fora do intervalo. Este PDF tem ' + pdfDoc.numPages + ' páginas (1 a ' + pdfDoc.numPages + ').');
+            syncPageJumpInput();
+            return;
+        }
+        if (n === pageNum) return;
+        resetTtsBookmark();
+        pageNum = n;
+        renderPage(pageNum);
+    }
+
+    function goToPageFromInput() {
+        const el = document.getElementById('page-jump-input');
+        if (!el || !pdfDoc) return;
+        const raw = String(el.value).trim();
+        if (raw === '') {
+            syncPageJumpInput();
+            return;
+        }
+        goToPage(parseInt(raw, 10));
+    }
+
+    function changePage(delta) {
+        if (!pdfDoc || isRendering) return;
+        const next = pageNum + delta;
+        if (next > 0 && next <= pdfDoc.numPages) {
+            resetTtsBookmark();
+            pageNum = next;
+            renderPage(pageNum);
+        }
+    }
+
+    (function wirePageJump() {
+        const inp = document.getElementById('page-jump-input');
+        const btn = document.getElementById('btn-page-jump');
+        if (!inp || !btn) return;
+        btn.addEventListener('click', goToPageFromInput);
+        inp.addEventListener('keydown', (e) => {
+            if (e.code === 'Enter') {
+                e.preventDefault();
+                goToPageFromInput();
+            }
+        });
+    })();
+
+    function pauseTTS() {
+        ttsStopRequested = true;
+        isReading = false;
+        currentUtterance = null;
+        synth.cancel();
+        const cap = ttsLastFullTextLen > 0 ? ttsLastFullTextLen : Math.max(0, ttsAbsCharEnd);
+        ttsResumeCharOffset = Math.min(Math.max(0, ttsAbsCharEnd), cap);
+        ttsResumePageNum = pageNum;
+        speakLock = false;
+        fullPageText = '';
+        ttsCharRanges = [];
+        clearPdfHighlight();
+        ttsPanel.classList.add('hidden');
+        ttsLiveText.textContent = '';
+        updateTtsButtonLabel();
+        ttsStopRequested = false;
+    }
+
+    function stopTTS(opts) {
+        const resetBookmark = !opts || opts.resetBookmark !== false;
+        ttsStopRequested = true;
+        isReading = false;
+        currentUtterance = null;
+        synth.cancel();
+        fullPageText = '';
+        ttsCharRanges = [];
+        speakLock = false;
+        clearPdfHighlight();
+        const btn = document.getElementById('btn-tts');
+        btn.textContent = '🔊 Ouvir';
+        btn.className = 'btn btn-tts';
+        ttsPanel.classList.add('hidden');
+        ttsLiveText.textContent = '';
+        if (resetBookmark) resetTtsBookmark();
+        updateTtsButtonLabel();
+        ttsStopRequested = false;
+    }
+
+    function _clearTtsWatchdog() {
+        if (ttsWatchdogTimer != null) { clearTimeout(ttsWatchdogTimer); ttsWatchdogTimer = null; }
+    }
+
+    let _toastTimer = null;
+    function showTtsToast(msg) {
+        const el = document.getElementById('tts-toast');
+        if (!el) return;
+        el.textContent = msg;
+        el.classList.add('visible');
+        clearTimeout(_toastTimer);
+        _toastTimer = setTimeout(() => el.classList.remove('visible'), 2800);
+    }
+
+    /* Núcleo síncrono: recebe texto já extraído e chama synth.speak() diretamente.
+       Não contém nenhum await — obrigatório para Chrome em HTTPS respeitar o gesto do utilizador. */
+    function _executeSpeech(text, ranges) {
+        if (speakLock && currentUtterance) return;
+        speakLock = true;
+        ttsStopRequested = false;
+        const btn = document.getElementById('btn-tts');
+
+        if (!text || !text.trim()) {
+            speakLock = false;
+            const btnT = document.getElementById('btn-tts');
+            btnT.textContent = '🔊 Ouvir';
+            btnT.className = 'btn btn-tts';
+            const contEl = document.getElementById('continuous-read');
+            const isCont = contEl && contEl.checked;
+            const hasNext = pdfDoc && pageNum < pdfDoc.numPages;
+            if (isCont && hasNext) {
+                showTtsToast('Página sem texto — avançando...');
+                pageNum += 1;
+                renderPage(pageNum, true).then(() => speakCurrentPage());
+            } else {
+                showTtsToast('Esta página não tem texto legível.');
+            }
+            return;
+        }
+
+        ttsLastFullTextLen = text.length;
+        let resumeFrom = 0;
+        if (ttsResumePageNum === pageNum && ttsResumeCharOffset > 0 && ttsResumeCharOffset < text.length) {
+            resumeFrom = ttsResumeCharOffset;
+        }
+        const speakText = text.slice(resumeFrom);
+        if (!speakText.trim()) {
+            resetTtsBookmark();
+            speakLock = false;
+            btn.textContent = '🔊 Ouvir';
+            btn.className = 'btn btn-tts';
+            updateTtsButtonLabel();
+            return;
+        }
+
+        const utteranceCharOffset = resumeFrom;
+        ttsAbsCharEnd = resumeFrom;
+        ttsCharRanges = ranges;
+        fullPageText = text;
+        if (syncPanelEnabled()) {
+            ttsLiveText.textContent = text;
+            ttsPanel.classList.remove('hidden');
+        } else {
+            ttsLiveText.textContent = '';
+            ttsPanel.classList.add('hidden');
+        }
+
+        const utterance = new SpeechSynthesisUtterance(speakText);
+        let utteranceStarted = false; /* flag: onstart disparou para esta utterance */
+        currentUtterance = utterance;
+        const voice = getSelectedVoice();
+        if (voice) {
+            utterance.voice = voice;
+            utterance.lang = voice.lang || 'pt-BR';
+        } else {
+            utterance.lang = 'pt-BR';
+        }
+        utterance.rate = Number(rateRange.value);
+
+        utterance.onstart = () => {
+            if (currentUtterance !== utterance) return;
+            _clearTtsWatchdog();
+            utteranceStarted = true;
+            ttsAbsCharEnd = utteranceCharOffset;
+            isReading = true;
+            speakLock = false;
+            btn.textContent = '⏹ Parar';
+            btn.className = 'btn btn-stop';
+        };
+
+        utterance.onboundary = (ev) => {
+            if (currentUtterance !== utterance) return;
+            if (ev.charIndex === undefined) return;
+            const cl = ev.charLength || 1;
+            ttsAbsCharEnd = utteranceCharOffset + ev.charIndex + cl;
+            updateHighlight(utteranceCharOffset + ev.charIndex, cl);
+        };
+
+        utterance.onend = async () => {
+            if (currentUtterance !== utterance) return;
+            _clearTtsWatchdog();
+
+            /* Se onstart nunca disparou significa que o Chrome em HTTPS bloqueou
+               speak() silenciosamente e disparou onend imediatamente.
+               NÃO avançar páginas — isso causaria loop de skip até ao fim do PDF. */
+            if (!utteranceStarted) {
+                isReading = false;
+                currentUtterance = null;
+                speakLock = false;
+                btn.textContent = '🔊 Ouvir';
+                btn.className = 'btn btn-tts';
+                ttsPanel.classList.add('hidden');
+                updateTtsButtonLabel();
+                showTtsToast('Toque em Ouvir para iniciar (requer interação com a página).');
+                return;
+            }
+
+            const continuous = document.getElementById('continuous-read').checked;
+            const hasNext = pageNum < pdfDoc.numPages;
+            isReading = false;
+            currentUtterance = null;
+            ttsAbsCharEnd = text.length;
+
+            if (continuous && hasNext) {
+                resetTtsBookmark();
+                speakLock = false;
+                pageNum += 1;
+                await renderPage(pageNum, true);
+                await speakCurrentPage();
+            } else {
+                resetTtsBookmark();
+                speakLock = false;
+                btn.textContent = '🔊 Ouvir';
+                btn.className = 'btn btn-tts';
+                ttsPanel.classList.add('hidden');
+                updateTtsButtonLabel();
+            }
+        };
+
+        utterance.onerror = (ev) => {
+            _clearTtsWatchdog();
+            const code = (ev && ev.error) ? String(ev.error).toLowerCase() : '';
+            const isSilent = code === 'interrupted' || code === 'canceled' || code === 'cancelled';
+            if (isSilent && utteranceStarted) return; /* interrompido durante leitura real — ok */
+            if (!isSilent) {
+                console.warn('TTS onerror:', ev.error);
+            }
+            stopTTS();
+            if (code === 'not-allowed') {
+                showTtsToast('Leitura bloqueada pelo browser. Toque em Ouvir para tentar novamente.');
+            }
+        };
+
+        /* Workaround Chrome HTTPS: o browser às vezes pausa o speechSynthesis
+           silenciosamente; resume() antes de speak() desbloqueia. */
+        try { if (synth.paused) synth.resume(); } catch(e) {}
+
+        /* Watchdog: se onstart não disparar em 3 s e onend também não, Chrome bloqueou. */
+        _clearTtsWatchdog();
+        ttsWatchdogTimer = setTimeout(() => {
+            ttsWatchdogTimer = null;
+            if (currentUtterance === utterance && !utteranceStarted) {
+                console.warn('TTS watchdog: onstart nunca disparou — Chrome bloqueou speak() em HTTPS.');
+                stopTTS();
+                showTtsToast('Toque em Ouvir para iniciar (requer interação com a página).');
+            }
+        }, 3000);
+
+        synth.speak(utterance);
+    }
+
+    /* Versão async: usada em leitura contínua (onend → próxima página),
+       onde não existe gesto direto do utilizador. */
+    async function speakCurrentPage() {
+        if (speakLock) return;
+        if (!pdfDoc) return;
+
+        /* Usar cache se disponível; caso contrário, extrair com await. */
+        if (ttsPageCache.pageNum === pageNum && ttsPageCache.text && ttsPageCache.text.trim()) {
+            _executeSpeech(ttsPageCache.text, ttsPageCache.ranges || []);
+            return;
+        }
+        try {
+            const page = await pdfDoc.getPage(pageNum);
+            const textContent = await page.getTextContent();
+            const built = buildTtsTextAndRanges(textContent.items || []);
+            ttsPageCache = { pageNum, text: built.text, ranges: built.ranges };
+            _executeSpeech(built.text, built.ranges);
+        } catch (e) {
+            console.error(e);
+            showTtsToast('Erro ao extrair texto da página.');
+            stopTTS();
+        }
+    }
+
+    /* toggleTTS é SÍNCRONA — obrigatório para Chrome em HTTPS reconhecer o gesto
+       do utilizador e não bloquear speechSynthesis.speak(). */
+    function toggleTTS() {
+        if (isReading) {
+            pauseTTS();
+            return;
+        }
+        if (speakLock) {
+            _clearTtsWatchdog();
+            ttsStopRequested = true;
+            speakLock = false;
+            const btn = document.getElementById('btn-tts');
+            btn.textContent = '🔊 Ouvir';
+            btn.className = 'btn btn-tts';
+            updateTtsButtonLabel();
+            return;
+        }
+        if (!pdfDoc || isRendering) return;
+
+        /* Se a cache já foi populada para esta página (com ou sem texto), usar o caminho
+           síncrono. Isso inclui páginas sem texto — _executeSpeech trata o caso vazio. */
+        if (ttsPageCache.pageNum === pageNum) {
+            _executeSpeech(ttsPageCache.text || '', ttsPageCache.ranges || []);
+            return;
+        }
+
+        /* Cache ainda não existe para esta página — caso improvável porque o botão fica
+           desativado durante renderPage. Async fallback (pode não falar no Chrome HTTPS,
+           mas pelo menos não bloqueia a UI). */
+        const btn = document.getElementById('btn-tts');
+        btn.textContent = '⌛ extraindo...';
+        speakLock = true;
+        const targetPage = pageNum;
+        pdfDoc.getPage(targetPage).then(pg => pg.getTextContent()).then(tc => {
+            const built = buildTtsTextAndRanges(tc.items || []);
+            ttsPageCache = { pageNum: targetPage, text: built.text, ranges: built.ranges };
+            speakLock = false;
+            if (pageNum === targetPage && !isReading) _executeSpeech(built.text, built.ranges);
+            else { btn.textContent = '🔊 Ouvir'; btn.className = 'btn btn-tts'; updateTtsButtonLabel(); }
+        }).catch(e => {
+            console.error(e);
+            speakLock = false;
+            btn.textContent = '🔊 Ouvir';
+            btn.className = 'btn btn-tts';
+            updateTtsButtonLabel();
+        });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.target.closest('input, select, textarea, button')) return;
+        if (!pdfDoc) return;
+        if (e.code === 'ArrowLeft') { e.preventDefault(); changePage(-1); }
+        if (e.code === 'ArrowRight') { e.preventDefault(); changePage(1); }
+        if (e.code === 'Space') {
+            e.preventDefault();
+            toggleTTS();
+        }
+    });
+
+    let readeraResizeTimer = null;
+    window.addEventListener('resize', () => {
+        if (!pdfDoc || isReading || speakLock) return;
+        clearTimeout(readeraResizeTimer);
+        readeraResizeTimer = setTimeout(() => {
+            renderPage(pageNum, true);
+        }, 280);
+    });
+
+    initSupabaseClient();
+</script>
+</body>
+</html>
