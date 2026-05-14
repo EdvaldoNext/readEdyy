@@ -156,7 +156,12 @@
             <button type="button" class="btn" id="btn-page-jump" style="background:#555; color:#fff;">Ir</button>
         </div>
         <div class="controls-row tts-options">
-            <label>Voz <select id="voice-select" title="Voz do sistema"></select></label>
+            <label>Motor <select id="tts-engine-select" title="Motor de voz">
+                <option value="auto">Auto</option>
+                <option value="backend">Backend</option>
+                <option value="browser">Navegador</option>
+            </select></label>
+            <label>Voz <select id="voice-select" title="Voz do motor selecionado"></select></label>
             <label>Veloc. <input type="range" id="rate-range" min="0.5" max="1.75" step="0.05" value="1"> <span id="rate-label">1×</span></label>
             <label class="nowrap"><input type="checkbox" id="continuous-read" checked> Ler em sequência</label>
         </div>
@@ -169,8 +174,36 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
     let pdfDoc = null, pageNum = 1, isRendering = false, isReading = false;
-    let synth = window.speechSynthesis;
+    const TTS_DEFAULT_VOICES = [
+        { id: 'alloy', label: 'Alloy' },
+        { id: 'ash', label: 'Ash' },
+        { id: 'ballad', label: 'Ballad' },
+        { id: 'coral', label: 'Coral' },
+        { id: 'echo', label: 'Echo' },
+        { id: 'fable', label: 'Fable' },
+        { id: 'nova', label: 'Nova' },
+        { id: 'onyx', label: 'Onyx' },
+        { id: 'sage', label: 'Sage' },
+        { id: 'shimmer', label: 'Shimmer' },
+        { id: 'verse', label: 'Verse' },
+        { id: 'marin', label: 'Marin' },
+        { id: 'cedar', label: 'Cedar' }
+    ];
+    const ttsConfig = Object.assign({
+        mode: 'auto',
+        endpoint: '',
+        voice: 'alloy',
+        format: 'mp3',
+        maxChars: 3800,
+        voices: TTS_DEFAULT_VOICES
+    }, window.READERA_TTS || {});
+    let synth = typeof window.speechSynthesis !== 'undefined' ? window.speechSynthesis : null;
     let currentUtterance = null;
+    let currentAudio = null;
+    let currentAudioUrl = '';
+    let backendTtsAbort = null;
+    let backendProgressTimer = null;
+    let activeTtsEngine = null;
     let fullPageText = '';
     let speakLock = false;
     let ttsStopRequested = false;
@@ -196,6 +229,7 @@
 
     const fileInput = document.getElementById('file-input');
     const loading = document.getElementById('loading');
+    const ttsEngineSelect = document.getElementById('tts-engine-select');
     const voiceSelect = document.getElementById('voice-select');
     const rateRange = document.getElementById('rate-range');
     const rateLabel = document.getElementById('rate-label');
@@ -221,10 +255,86 @@
         return v.voiceURI || v.name + '|' + v.lang;
     }
 
+    function hasBackendTts() {
+        return !!(ttsConfig && ttsConfig.endpoint && String(ttsConfig.endpoint).trim());
+    }
+
+    function canUseBrowserTts() {
+        return !!(synth && typeof window.SpeechSynthesisUtterance !== 'undefined');
+    }
+
+    function getPreferredTtsMode() {
+        if (ttsEngineSelect && ttsEngineSelect.value) return ttsEngineSelect.value;
+        return localStorage.getItem('readera-tts-engine') || ttsConfig.mode || 'auto';
+    }
+
+    function resolveTtsEngine() {
+        const mode = getPreferredTtsMode();
+        if ((mode === 'backend' || mode === 'auto') && hasBackendTts()) return 'backend';
+        if ((mode === 'browser' || mode === 'auto') && canUseBrowserTts()) return 'browser';
+        return null;
+    }
+
+    function getBackendVoices() {
+        const voices = Array.isArray(ttsConfig.voices) && ttsConfig.voices.length ? ttsConfig.voices : TTS_DEFAULT_VOICES;
+        return voices.map((voice) => {
+            if (typeof voice === 'string') return { id: voice, label: voice };
+            return {
+                id: String(voice.id || voice.value || voice.name || ttsConfig.voice || 'alloy'),
+                label: String(voice.label || voice.name || voice.id || voice.value || 'Voz backend')
+            };
+        });
+    }
+
+    function syncTtsEngineControl() {
+        if (!ttsEngineSelect) return;
+        const saved = localStorage.getItem('readera-tts-engine') || ttsConfig.mode || 'auto';
+        if ([...ttsEngineSelect.options].some((o) => o.value === saved)) {
+            ttsEngineSelect.value = saved;
+        }
+        const backendOpt = [...ttsEngineSelect.options].find((o) => o.value === 'backend');
+        if (backendOpt) backendOpt.disabled = !hasBackendTts();
+        const browserOpt = [...ttsEngineSelect.options].find((o) => o.value === 'browser');
+        if (browserOpt) browserOpt.disabled = !canUseBrowserTts();
+        if ((ttsEngineSelect.value === 'backend' && !hasBackendTts()) || (ttsEngineSelect.value === 'browser' && !canUseBrowserTts())) {
+            ttsEngineSelect.value = 'auto';
+            localStorage.setItem('readera-tts-engine', 'auto');
+        }
+    }
+
     function populateVoices() {
-        const voices = synth.getVoices().filter(v => v.lang);
         const prev = voiceSelect.value;
         voiceSelect.innerHTML = '';
+        const engine = resolveTtsEngine();
+
+        if (engine === 'backend') {
+            const voices = getBackendVoices();
+            voices.forEach((v) => {
+                const opt = document.createElement('option');
+                opt.value = v.id;
+                opt.textContent = v.label + ' (backend)';
+                voiceSelect.appendChild(opt);
+            });
+            const keys = new Set(Array.from(voiceSelect.options).map(o => o.value));
+            const preferred = prev || ttsConfig.voice || 'alloy';
+            if (preferred && keys.has(preferred)) voiceSelect.value = preferred;
+            else if (voiceSelect.options.length) voiceSelect.value = voiceSelect.options[0].value;
+            voiceSelect.disabled = voiceSelect.options.length <= 1;
+            voiceSelect.title = 'Voz gerada no backend configurado';
+            return;
+        }
+
+        if (!canUseBrowserTts()) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = hasBackendTts() ? 'Backend indisponível' : 'Sem motor de voz configurado';
+            voiceSelect.appendChild(opt);
+            voiceSelect.disabled = true;
+            voiceSelect.title = 'Configure um endpoint backend de TTS ou use um navegador com speechSynthesis';
+            return;
+        }
+
+        const voices = synth.getVoices().filter(v => v.lang);
         voices.forEach((v) => {
             const opt = document.createElement('option');
             opt.value = voiceKey(v);
@@ -237,12 +347,24 @@
             const pt = voices.find(v => /^pt/i.test(v.lang));
             if (pt) voiceSelect.value = voiceKey(pt);
         }
+        voiceSelect.disabled = voices.length === 0;
+        voiceSelect.title = 'Voz nativa do navegador (fallback)';
     }
+    syncTtsEngineControl();
     populateVoices();
-    if (typeof speechSynthesis !== 'undefined') {
-        speechSynthesis.onvoiceschanged = () => {
+    if (synth) {
+        synth.onvoiceschanged = () => {
             populateVoices();
         };
+    }
+    if (ttsEngineSelect) {
+        ttsEngineSelect.addEventListener('change', () => {
+            localStorage.setItem('readera-tts-engine', ttsEngineSelect.value);
+            syncTtsEngineControl();
+            populateVoices();
+            schedulePushUserPreferences();
+            updateTtsButtonLabel();
+        });
     }
     document.getElementById('continuous-read').addEventListener('change', schedulePushUserPreferences);
     voiceSelect.addEventListener('change', schedulePushUserPreferences);
@@ -255,9 +377,14 @@
     rateLabel.textContent = rateRange.value + '×';
 
     function getSelectedVoice() {
+        if (!canUseBrowserTts()) return null;
         const voices = synth.getVoices().filter(v => v.lang);
         const val = voiceSelect.value;
         return voices.find(v => voiceKey(v) === val) || voices[0];
+    }
+
+    function getSelectedBackendVoice() {
+        return voiceSelect.value || ttsConfig.voice || 'alloy';
     }
 
     function buildTtsTextAndRanges(items) {
@@ -484,6 +611,45 @@
         ttsAbsCharEnd = 0;
     }
 
+    function clearBackendProgressTimer() {
+        if (backendProgressTimer != null) {
+            clearInterval(backendProgressTimer);
+            backendProgressTimer = null;
+        }
+    }
+
+    function stopBackendAudio() {
+        clearBackendProgressTimer();
+        if (backendTtsAbort) {
+            try { backendTtsAbort.abort(); } catch (e) {}
+            backendTtsAbort = null;
+        }
+        if (currentAudio) {
+            try {
+                currentAudio.pause();
+                currentAudio.removeAttribute('src');
+                currentAudio.load();
+            } catch (e) {}
+            currentAudio = null;
+        }
+        if (currentAudioUrl) {
+            try { URL.revokeObjectURL(currentAudioUrl); } catch (e) {}
+            currentAudioUrl = '';
+        }
+        if (activeTtsEngine === 'backend') activeTtsEngine = null;
+    }
+
+    function cancelNativeSpeech() {
+        if (!synth) return;
+        try { synth.cancel(); } catch (e) {}
+    }
+
+    function cancelCurrentTtsPlayback() {
+        stopBackendAudio();
+        cancelNativeSpeech();
+        currentUtterance = null;
+    }
+
     function updateTtsButtonLabel() {
         const btn = document.getElementById('btn-tts');
         if (!btn || isReading || speakLock) return;
@@ -491,6 +657,7 @@
             && ttsLastFullTextLen > 0 && ttsResumeCharOffset < ttsLastFullTextLen;
         btn.textContent = canContinue ? '▶ Continuar' : '🔊 Ouvir';
         btn.className = 'btn btn-tts';
+        btn.disabled = !!pdfDoc && !resolveTtsEngine();
     }
 
     function persistLastCloudDocId(id) {
@@ -884,7 +1051,7 @@
         syncPageJumpInput();
         } finally {
             isRendering = false;
-            if (btnTts) btnTts.disabled = false;
+            if (btnTts) btnTts.disabled = !resolveTtsEngine();
         }
     }
 
@@ -952,8 +1119,7 @@
     function pauseTTS() {
         ttsStopRequested = true;
         isReading = false;
-        currentUtterance = null;
-        synth.cancel();
+        cancelCurrentTtsPlayback();
         const cap = ttsLastFullTextLen > 0 ? ttsLastFullTextLen : Math.max(0, ttsAbsCharEnd);
         ttsResumeCharOffset = Math.min(Math.max(0, ttsAbsCharEnd), cap);
         ttsResumePageNum = pageNum;
@@ -971,8 +1137,7 @@
         const resetBookmark = !opts || opts.resetBookmark !== false;
         ttsStopRequested = true;
         isReading = false;
-        currentUtterance = null;
-        synth.cancel();
+        cancelCurrentTtsPlayback();
         fullPageText = '';
         ttsCharRanges = [];
         speakLock = false;
@@ -1001,48 +1166,54 @@
         _toastTimer = setTimeout(() => el.classList.remove('visible'), 2800);
     }
 
-    /* Núcleo síncrono: recebe texto já extraído e chama synth.speak() diretamente.
-       Não contém nenhum await — obrigatório para Chrome em HTTPS respeitar o gesto do utilizador. */
-    function _executeSpeech(text, ranges) {
-        if (speakLock && currentUtterance) return;
-        speakLock = true;
-        ttsStopRequested = false;
+    function handlePageFinished(text) {
+        const continuous = document.getElementById('continuous-read').checked;
+        const hasNext = pageNum < pdfDoc.numPages;
         const btn = document.getElementById('btn-tts');
+        isReading = false;
+        currentUtterance = null;
+        stopBackendAudio();
+        ttsAbsCharEnd = text.length;
 
-        if (!text || !text.trim()) {
+        if (continuous && hasNext) {
+            resetTtsBookmark();
             speakLock = false;
-            const btnT = document.getElementById('btn-tts');
-            btnT.textContent = '🔊 Ouvir';
-            btnT.className = 'btn btn-tts';
-            const contEl = document.getElementById('continuous-read');
-            const isCont = contEl && contEl.checked;
-            const hasNext = pdfDoc && pageNum < pdfDoc.numPages;
-            if (isCont && hasNext) {
-                showTtsToast('Página sem texto — avançando...');
-                pageNum += 1;
-                renderPage(pageNum, true).then(() => speakCurrentPage());
-            } else {
-                showTtsToast('Esta página não tem texto legível.');
-            }
-            return;
+            pageNum += 1;
+            return renderPage(pageNum, true).then(() => speakCurrentPage());
         }
 
+        resetTtsBookmark();
+        speakLock = false;
+        btn.textContent = '🔊 Ouvir';
+        btn.className = 'btn btn-tts';
+        ttsPanel.classList.add('hidden');
+        updateTtsButtonLabel();
+        return Promise.resolve();
+    }
+
+    function handleEmptyTtsPage() {
+        speakLock = false;
+        const btnT = document.getElementById('btn-tts');
+        btnT.textContent = '🔊 Ouvir';
+        btnT.className = 'btn btn-tts';
+        const contEl = document.getElementById('continuous-read');
+        const isCont = contEl && contEl.checked;
+        const hasNext = pdfDoc && pageNum < pdfDoc.numPages;
+        if (isCont && hasNext) {
+            showTtsToast('Página sem texto — avançando...');
+            pageNum += 1;
+            renderPage(pageNum, true).then(() => speakCurrentPage());
+        } else {
+            showTtsToast('Esta página não tem texto legível.');
+        }
+    }
+
+    function prepareTtsState(text, ranges) {
         ttsLastFullTextLen = text.length;
         let resumeFrom = 0;
         if (ttsResumePageNum === pageNum && ttsResumeCharOffset > 0 && ttsResumeCharOffset < text.length) {
             resumeFrom = ttsResumeCharOffset;
         }
-        const speakText = text.slice(resumeFrom);
-        if (!speakText.trim()) {
-            resetTtsBookmark();
-            speakLock = false;
-            btn.textContent = '🔊 Ouvir';
-            btn.className = 'btn btn-tts';
-            updateTtsButtonLabel();
-            return;
-        }
-
-        const utteranceCharOffset = resumeFrom;
         ttsAbsCharEnd = resumeFrom;
         ttsCharRanges = ranges;
         fullPageText = text;
@@ -1053,9 +1224,190 @@
             ttsLiveText.textContent = '';
             ttsPanel.classList.add('hidden');
         }
+        return resumeFrom;
+    }
 
-        const utterance = new SpeechSynthesisUtterance(speakText);
-        let utteranceStarted = false; /* flag: onstart disparou para esta utterance */
+    function setTtsActiveButton() {
+        const btn = document.getElementById('btn-tts');
+        btn.textContent = '⏹ Parar';
+        btn.className = 'btn btn-stop';
+    }
+
+    function setTtsIdleButton() {
+        const btn = document.getElementById('btn-tts');
+        btn.textContent = '🔊 Ouvir';
+        btn.className = 'btn btn-tts';
+        updateTtsButtonLabel();
+    }
+
+    function buildBackendChunk(text, start) {
+        const maxChars = Math.max(800, Math.min(Number(ttsConfig.maxChars) || 3800, 4096));
+        const hardEnd = Math.min(text.length, start + maxChars);
+        if (hardEnd >= text.length) return { text: text.slice(start), end: text.length };
+
+        const slice = text.slice(start, hardEnd);
+        const candidates = ['. ', '! ', '? ', '; ', ': ', '\n', ', '];
+        let best = -1;
+        candidates.forEach((token) => {
+            const idx = slice.lastIndexOf(token);
+            if (idx > best) best = idx + token.length;
+        });
+        const softEnd = best > maxChars * 0.55 ? start + best : hardEnd;
+        return { text: text.slice(start, softEnd), end: softEnd };
+    }
+
+    function backendRequestHeaders() {
+        const headers = { 'Content-Type': 'application/json', 'Accept': 'audio/*' };
+        const endpoint = String(ttsConfig.endpoint || '');
+        const anonKey = window.READERA_SUPABASE && window.READERA_SUPABASE.anonKey;
+        if (anonKey && endpoint.indexOf('.supabase.co/functions/v1/') !== -1) {
+            headers.Authorization = 'Bearer ' + anonKey;
+            headers.apikey = anonKey;
+        }
+        if (ttsConfig.headers && typeof ttsConfig.headers === 'object') {
+            Object.assign(headers, ttsConfig.headers);
+        }
+        return headers;
+    }
+
+    function startBackendProgress(audio, text, start, end) {
+        clearBackendProgressTimer();
+        const chunkLen = Math.max(1, end - start);
+        const estimatedDuration = Math.max(2, chunkLen / 13);
+        backendProgressTimer = setInterval(() => {
+            if (!audio || audio.paused) return;
+            const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : estimatedDuration;
+            const ratio = Math.max(0, Math.min(1, audio.currentTime / duration));
+            const pos = Math.min(end, start + Math.floor(chunkLen * ratio));
+            ttsAbsCharEnd = pos;
+            updateHighlight(pos, Math.max(1, Math.min(24, end - pos)));
+        }, 250);
+    }
+
+    async function _executeBackendSpeech(text, ranges) {
+        if (speakLock && (currentAudio || backendTtsAbort)) return;
+        speakLock = true;
+        ttsStopRequested = false;
+        const btn = document.getElementById('btn-tts');
+        const resumeFrom = prepareTtsState(text, ranges);
+        const chunk = buildBackendChunk(text, resumeFrom);
+        const speakText = chunk.text;
+
+        if (!speakText.trim()) {
+            resetTtsBookmark();
+            speakLock = false;
+            setTtsIdleButton();
+            return;
+        }
+
+        activeTtsEngine = 'backend';
+        backendTtsAbort = new AbortController();
+        btn.textContent = '⌛ gerando áudio...';
+        btn.className = 'btn btn-tts';
+
+        try {
+            const response = await fetch(String(ttsConfig.endpoint).trim(), {
+                method: 'POST',
+                headers: backendRequestHeaders(),
+                body: JSON.stringify({
+                    text: speakText,
+                    voice: getSelectedBackendVoice(),
+                    rate: Number(rateRange.value),
+                    format: ttsConfig.format || 'mp3'
+                }),
+                signal: backendTtsAbort.signal
+            });
+
+            if (!response.ok) {
+                const body = await response.text().catch(() => '');
+                throw new Error('Backend TTS retornou ' + response.status + (body ? ': ' + body.slice(0, 180) : ''));
+            }
+
+            const blob = await response.blob();
+            if (ttsStopRequested) return;
+            currentAudioUrl = URL.createObjectURL(blob);
+            currentAudio = new Audio(currentAudioUrl);
+            currentAudio.preload = 'auto';
+
+            currentAudio.onplay = () => {
+                if (!currentAudio) return;
+                isReading = true;
+                speakLock = false;
+                ttsAbsCharEnd = resumeFrom;
+                setTtsActiveButton();
+                startBackendProgress(currentAudio, text, resumeFrom, chunk.end);
+            };
+
+            currentAudio.onended = async () => {
+                clearBackendProgressTimer();
+                ttsAbsCharEnd = chunk.end;
+                updateHighlight(Math.max(0, chunk.end - 1), 1);
+                if (currentAudioUrl) {
+                    try { URL.revokeObjectURL(currentAudioUrl); } catch (e) {}
+                    currentAudioUrl = '';
+                }
+                currentAudio = null;
+                backendTtsAbort = null;
+
+                if (chunk.end < text.length && !ttsStopRequested) {
+                    ttsResumeCharOffset = chunk.end;
+                    ttsResumePageNum = pageNum;
+                    speakLock = false;
+                    await _executeBackendSpeech(text, ranges);
+                    return;
+                }
+                await handlePageFinished(text);
+            };
+
+            currentAudio.onerror = () => {
+                clearBackendProgressTimer();
+                stopTTS();
+                showTtsToast('Erro ao tocar o áudio gerado pelo backend.');
+            };
+
+            await currentAudio.play();
+        } catch (err) {
+            const aborted = err && err.name === 'AbortError';
+            backendTtsAbort = null;
+            if (aborted || ttsStopRequested) return;
+            console.warn(err);
+            stopBackendAudio();
+            speakLock = false;
+            if (getPreferredTtsMode() === 'auto' && canUseBrowserTts()) {
+                showTtsToast('Backend TTS indisponível; usando voz do navegador.');
+                _executeBrowserSpeech(text, ranges);
+                return;
+            }
+            stopTTS();
+            showTtsToast('Backend TTS indisponível. Verifique o endpoint/configuração.');
+        }
+    }
+
+    /* Fallback síncrono: usa speechSynthesis apenas quando não há backend configurado
+       ou quando o usuário escolhe explicitamente o motor do navegador. */
+    function _executeBrowserSpeech(text, ranges) {
+        if (!canUseBrowserTts()) {
+            showTtsToast('Sem motor de voz disponível. Configure o backend TTS.');
+            return;
+        }
+        if (speakLock && currentUtterance) return;
+        speakLock = true;
+        ttsStopRequested = false;
+        const btn = document.getElementById('btn-tts');
+        const resumeFrom = prepareTtsState(text, ranges);
+        const speakText = text.slice(resumeFrom);
+
+        if (!speakText.trim()) {
+            resetTtsBookmark();
+            speakLock = false;
+            setTtsIdleButton();
+            return;
+        }
+
+        const utteranceCharOffset = resumeFrom;
+        activeTtsEngine = 'browser';
+        const utterance = new window.SpeechSynthesisUtterance(speakText);
+        let utteranceStarted = false;
         currentUtterance = utterance;
         const voice = getSelectedVoice();
         if (voice) {
@@ -1073,8 +1425,7 @@
             ttsAbsCharEnd = utteranceCharOffset;
             isReading = true;
             speakLock = false;
-            btn.textContent = '⏹ Parar';
-            btn.className = 'btn btn-stop';
+            setTtsActiveButton();
         };
 
         utterance.onboundary = (ev) => {
@@ -1089,73 +1440,64 @@
             if (currentUtterance !== utterance) return;
             _clearTtsWatchdog();
 
-            /* Se onstart nunca disparou significa que o Chrome em HTTPS bloqueou
-               speak() silenciosamente e disparou onend imediatamente.
-               NÃO avançar páginas — isso causaria loop de skip até ao fim do PDF. */
             if (!utteranceStarted) {
                 isReading = false;
                 currentUtterance = null;
                 speakLock = false;
-                btn.textContent = '🔊 Ouvir';
-                btn.className = 'btn btn-tts';
                 ttsPanel.classList.add('hidden');
-                updateTtsButtonLabel();
+                setTtsIdleButton();
                 showTtsToast('Toque em Ouvir para iniciar (requer interação com a página).');
                 return;
             }
 
-            const continuous = document.getElementById('continuous-read').checked;
-            const hasNext = pageNum < pdfDoc.numPages;
-            isReading = false;
-            currentUtterance = null;
-            ttsAbsCharEnd = text.length;
-
-            if (continuous && hasNext) {
-                resetTtsBookmark();
-                speakLock = false;
-                pageNum += 1;
-                await renderPage(pageNum, true);
-                await speakCurrentPage();
-            } else {
-                resetTtsBookmark();
-                speakLock = false;
-                btn.textContent = '🔊 Ouvir';
-                btn.className = 'btn btn-tts';
-                ttsPanel.classList.add('hidden');
-                updateTtsButtonLabel();
-            }
+            await handlePageFinished(text);
         };
 
         utterance.onerror = (ev) => {
             _clearTtsWatchdog();
             const code = (ev && ev.error) ? String(ev.error).toLowerCase() : '';
             const isSilent = code === 'interrupted' || code === 'canceled' || code === 'cancelled';
-            if (isSilent && utteranceStarted) return; /* interrompido durante leitura real — ok */
+            if (isSilent && utteranceStarted) return;
             if (!isSilent) {
                 console.warn('TTS onerror:', ev.error);
             }
             stopTTS();
             if (code === 'not-allowed') {
-                showTtsToast('Leitura bloqueada pelo browser. Toque em Ouvir para tentar novamente.');
+                showTtsToast('Leitura bloqueada pelo browser. Use o motor backend ou toque em Ouvir novamente.');
             }
         };
 
-        /* Workaround Chrome HTTPS: o browser às vezes pausa o speechSynthesis
-           silenciosamente; resume() antes de speak() desbloqueia. */
         try { if (synth.paused) synth.resume(); } catch(e) {}
 
-        /* Watchdog: se onstart não disparar em 3 s e onend também não, Chrome bloqueou. */
         _clearTtsWatchdog();
         ttsWatchdogTimer = setTimeout(() => {
             ttsWatchdogTimer = null;
             if (currentUtterance === utterance && !utteranceStarted) {
-                console.warn('TTS watchdog: onstart nunca disparou — Chrome bloqueou speak() em HTTPS.');
+                console.warn('TTS watchdog: onstart nunca disparou — motor do navegador bloqueou speak().');
                 stopTTS();
-                showTtsToast('Toque em Ouvir para iniciar (requer interação com a página).');
+                showTtsToast('Motor do navegador bloqueou a leitura. Configure o backend TTS.');
             }
         }, 3000);
 
         synth.speak(utterance);
+    }
+
+    function _executeSpeech(text, ranges) {
+        if (!text || !text.trim()) {
+            handleEmptyTtsPage();
+            return;
+        }
+        const engine = resolveTtsEngine();
+        if (engine === 'backend') {
+            void _executeBackendSpeech(text, ranges || []);
+            return;
+        }
+        if (engine === 'browser') {
+            _executeBrowserSpeech(text, ranges || []);
+            return;
+        }
+        showTtsToast('Sem motor de voz disponível. Configure o backend TTS.');
+        updateTtsButtonLabel();
     }
 
     /* Versão async: usada em leitura contínua (onend → próxima página),
@@ -1192,6 +1534,7 @@
         if (speakLock) {
             _clearTtsWatchdog();
             ttsStopRequested = true;
+            cancelCurrentTtsPlayback();
             speakLock = false;
             const btn = document.getElementById('btn-tts');
             btn.textContent = '🔊 Ouvir';

@@ -246,6 +246,25 @@ Migração aplicável: `supabase/migrations/20250514153000_readera_anon_no_login
 
 Preferências de tema/TTS ficam **só em `localStorage`** neste modo (a tabela `user_preferences` continua sem acesso para `anon`).
 
+### ReadEra TTS sem depender do navegador
+
+O frontend agora suporta `window.READERA_TTS` em `config.js`.
+
+- `mode: "auto"` tenta primeiro o backend e só cai para `speechSynthesis` se o endpoint falhar.
+- Endpoint sugerido: `https://ezcmdbcxgqvonqewgvrm.supabase.co/functions/v1/readera-tts`.
+- Código versionado: `supabase/functions/readera-tts/index.ts`.
+- Variável necessária na Edge Function: `OPENAI_API_KEY`.
+- Variáveis opcionais: `OPENAI_TTS_MODEL`, `READERA_TTS_VOICE`, `READERA_TTS_ALLOW_ORIGIN`, `READERA_TTS_INSTRUCTIONS`, `READERA_TTS_MAX_CHARS`.
+
+Deploy típico:
+
+```bash
+npx supabase functions deploy readera-tts
+npx supabase secrets set OPENAI_API_KEY=sk-...
+```
+
+Sem essa função/secret, a app continua funcional usando o fallback do navegador quando disponível.
+
 ### Segurança
 
 - A saída de `npx supabase projects api-keys` contém **service_role**: não commitar, não colar no frontend; se vazou em canal inseguro, **gire a chave** no dashboard.
