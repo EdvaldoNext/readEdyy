@@ -28,8 +28,6 @@
         #pdf-render-area .pdf-page-inner { position: relative; transform-origin: 0 0; }
         #pdf-render-area canvas { display: block; vertical-align: top; box-shadow: 0 4px 15px rgba(0,0,0,0.2); background: white; border-radius: 4px; }
         body.reading-mode #pdf-render-area canvas { box-shadow: none; border-radius: 0; }
-        body.dark #pdf-render-area canvas { filter: invert(1) hue-rotate(180deg) contrast(0.92) brightness(0.92); background: #111; }
-        body.dark #pdf-render-area .pdf-page-wrap { background: #111; }
         .text-layer { position: absolute; left: 0; top: 0; overflow: hidden; line-height: 1; pointer-events: none; }
         .text-layer span { position: absolute; color: transparent; white-space: pre; transform-origin: 0 0; box-sizing: content-box; }
         .text-layer span.tts-active { background: rgba(255, 214, 74, 0.52); border-radius: 2px; }
@@ -76,8 +74,6 @@
         .settings-panel .panel-hint { font-size: 0.72rem; opacity: 0.72; margin: 2px 0 4px 26px; font-weight: 400; line-height: 1.35; }
         #btn-show-chrome { display: none; position: fixed; left: max(12px, env(safe-area-inset-left, 0px)); bottom: max(12px, env(safe-area-inset-bottom, 0px)); z-index: 3500; border: none; border-radius: 999px; padding: 12px 16px; cursor: pointer; font-weight: 600; background: var(--accent); color: #fff; box-shadow: 0 4px 18px rgba(0,0,0,0.35); }
         body.ui-chrome-hidden #btn-show-chrome { display: block; }
-        #btn-mobile-pdf-focus { display: none; }
-        .mobile-pdf-nav { display: none; }
         @media (max-width: 640px) {
             header { flex-direction: column; align-items: stretch; }
             header > span:first-of-type { text-align: center; }
@@ -90,20 +86,6 @@
             .controls-row.tts-options input[type="range"] { width: 100%; max-width: none; flex: 1; }
             #cloud-library { max-width: 100%; }
             .controls-row.page-jump .nowrap { white-space: normal; }
-            #btn-mobile-pdf-focus { display: inline-flex; align-items: center; justify-content: center; background: #0b84ff; color: #fff; }
-            body.mobile-pdf-focus { background: #050505; padding-left: 0; padding-right: 0; }
-            body.mobile-pdf-focus header,
-            body.mobile-pdf-focus #nav-controls,
-            body.mobile-pdf-focus #tts-text-panel,
-            body.mobile-pdf-focus #btn-show-chrome { display: none !important; }
-            body.mobile-pdf-focus #viewer-container { height: 100dvh; padding: max(8px, env(safe-area-inset-top, 0px)) max(6px, env(safe-area-inset-right, 0px)) max(82px, calc(64px + env(safe-area-inset-bottom, 0px))) max(6px, env(safe-area-inset-left, 0px)); overflow: hidden; align-items: center; justify-content: center; background: #050505; }
-            body.mobile-pdf-focus #pdf-render-area { height: 100%; justify-content: center; }
-            body.mobile-pdf-focus #pdf-render-area .pdf-page-wrap { box-shadow: 0 8px 28px rgba(0,0,0,0.45); }
-            body.mobile-pdf-focus .mobile-pdf-nav { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; position: fixed; left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px)); bottom: max(10px, env(safe-area-inset-bottom, 0px)); z-index: 3600; align-items: center; pointer-events: none; }
-            body.mobile-pdf-focus .mobile-pdf-nav button,
-            body.mobile-pdf-focus .mobile-pdf-nav span { pointer-events: auto; }
-            .mobile-pdf-nav .btn { border-radius: 999px; min-height: 48px; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
-            .mobile-pdf-nav .mobile-page-info { color: #fff; background: rgba(0,0,0,0.62); border-radius: 999px; padding: 10px 12px; font-size: 0.82rem; text-align: center; white-space: nowrap; }
         }
         @media (min-width: 1400px) {
             .controls-inner { max-width: min(720px, 96vw); }
@@ -160,12 +142,6 @@
 
 <div id="tts-toast" role="status" aria-live="polite"></div>
 <button type="button" id="btn-show-chrome" title="Mostrar barras de ferramentas">☰ Mostrar controles</button>
-<div id="mobile-pdf-nav" class="mobile-pdf-nav" aria-label="Navegação do PDF em tela cheia">
-    <button type="button" class="btn" id="btn-mobile-prev" style="background:#222; color:#fff;">◀ Página</button>
-    <span class="mobile-page-info" id="mobile-page-info">0 / 0</span>
-    <button type="button" class="btn" id="btn-mobile-next" style="background:#222; color:#fff;">Página ▶</button>
-    <button type="button" class="btn" id="btn-mobile-exit" style="grid-column: 1 / -1; background:#0b84ff; color:#fff;">Sair da tela cheia</button>
-</div>
 
 <div id="nav-controls" class="controls-bottom hidden">
     <div class="controls-inner">
@@ -178,7 +154,6 @@
         <div class="controls-row page-jump">
             <label class="nowrap">Ir para pág. <input type="number" id="page-jump-input" min="1" step="1" inputmode="numeric" placeholder="nº" title="Digite o número (1 … total) e Enter ou Ir"></label>
             <button type="button" class="btn" id="btn-page-jump" style="background:#555; color:#fff;">Ir</button>
-            <button type="button" class="btn" id="btn-mobile-pdf-focus" title="Ver PDF em tela cheia no celular">📱 PDF tela cheia</button>
         </div>
         <div class="controls-row tts-options">
             <label>Motor <select id="tts-engine-select" title="Motor de voz">
@@ -260,11 +235,6 @@
     const rateLabel = document.getElementById('rate-label');
     const ttsPanel = document.getElementById('tts-text-panel');
     const ttsLiveText = document.getElementById('tts-live-text');
-    const btnMobilePdfFocus = document.getElementById('btn-mobile-pdf-focus');
-    const btnMobilePrev = document.getElementById('btn-mobile-prev');
-    const btnMobileNext = document.getElementById('btn-mobile-next');
-    const btnMobileExit = document.getElementById('btn-mobile-exit');
-    const mobilePageInfo = document.getElementById('mobile-page-info');
 
     function escapeHtml(s) {
         return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -274,24 +244,6 @@
         document.body.classList.toggle('dark', dark);
         localStorage.setItem('readera-theme', dark ? 'dark' : 'light');
         document.getElementById('btn-theme').textContent = dark ? '☀️ Tema' : '🌙 Tema';
-    }
-
-    function isMobileViewport() {
-        if (window.matchMedia) return window.matchMedia('(max-width: 640px)').matches;
-        return window.innerWidth <= 640;
-    }
-
-    function syncMobilePageInfo() {
-        if (!mobilePageInfo) return;
-        mobilePageInfo.textContent = pdfDoc ? (pageNum + ' / ' + pdfDoc.numPages) : '0 / 0';
-    }
-
-    function setMobilePdfFocus(on) {
-        const enabled = !!on && isMobileViewport() && !!pdfDoc;
-        document.body.classList.toggle('mobile-pdf-focus', enabled);
-        localStorage.setItem('readera-mobile-pdf-focus', enabled ? '1' : '0');
-        syncMobilePageInfo();
-        if (pdfDoc && !isRendering) renderPage(pageNum, true);
     }
     document.getElementById('btn-theme').addEventListener('click', () => {
         applyTheme(!document.body.classList.contains('dark'));
@@ -1001,9 +953,6 @@
             const want = opts && opts.initialPage ? opts.initialPage : 1;
             pageNum = Math.min(Math.max(1, want), pdfDoc.numPages);
             await renderPage(pageNum);
-            if (localStorage.getItem('readera-mobile-pdf-focus') === '1' && isMobileViewport()) {
-                setMobilePdfFocus(true);
-            }
             updateCloudChrome();
             if (cloudDocumentId) persistLastCloudDocId(cloudDocumentId);
             if (!cloudDocumentId && pdfCacheBytes && readeraSb && localStorage.getItem(LS_AUTO_CLOUD) !== '0') {
@@ -1044,17 +993,10 @@
         const rect = viewer.getBoundingClientRect();
         const innerW = typeof window.innerWidth === 'number' ? window.innerWidth : rect.width;
         const useW = viewer.clientWidth > 80 ? viewer.clientWidth : Math.max(Math.floor(rect.width), Math.floor(innerW * 0.96));
-        let maxW = Math.max(280, Math.min(useW, innerW) - 32);
+        const maxW = Math.max(280, Math.min(useW, innerW) - 32);
         const vp1 = page.getViewport({ scale: 1 });
-        const mobilePdfFocus = document.body.classList.contains('mobile-pdf-focus');
-        let fit = maxW / vp1.width;
-        if (mobilePdfFocus) {
-            const availW = Math.max(240, viewer.clientWidth - 12);
-            const availH = Math.max(320, viewer.clientHeight - 20);
-            maxW = availW;
-            fit = Math.min(availW / vp1.width, availH / vp1.height);
-        }
-        const sharpen = mobilePdfFocus ? 1 : (window.devicePixelRatio > 1 ? 1.22 : 1);
+        const fit = maxW / vp1.width;
+        const sharpen = window.devicePixelRatio > 1 ? 1.22 : 1;
         let scale = fit * sharpen;
         let viewport = page.getViewport({ scale });
         if (viewport.width > maxW + 0.5) {
@@ -1103,7 +1045,6 @@
         ttsPageCache = { pageNum: num, text: ttsBuilt.text, ranges: ttsBuilt.ranges };
 
         document.getElementById('page-info').textContent = num + ' / ' + pdfDoc.numPages;
-        syncMobilePageInfo();
         document.getElementById('viewer-container').scrollTop = 0;
         scheduleCloudProgress();
         updateTtsButtonLabel();
@@ -1173,29 +1114,6 @@
                 goToPageFromInput();
             }
         });
-    })();
-
-    (function wireMobilePdfFocus() {
-        if (btnMobilePdfFocus) {
-            btnMobilePdfFocus.addEventListener('click', function() {
-                setMobilePdfFocus(true);
-            });
-        }
-        if (btnMobileExit) {
-            btnMobileExit.addEventListener('click', function() {
-                setMobilePdfFocus(false);
-            });
-        }
-        if (btnMobilePrev) {
-            btnMobilePrev.addEventListener('click', function() {
-                changePage(-1);
-            });
-        }
-        if (btnMobileNext) {
-            btnMobileNext.addEventListener('click', function() {
-                changePage(1);
-            });
-        }
     })();
 
     function pauseTTS() {
@@ -1727,10 +1645,6 @@
 
     let readeraResizeTimer = null;
     window.addEventListener('resize', () => {
-        if (!isMobileViewport() && document.body.classList.contains('mobile-pdf-focus')) {
-            setMobilePdfFocus(false);
-            return;
-        }
         if (!pdfDoc || isReading || speakLock) return;
         clearTimeout(readeraResizeTimer);
         readeraResizeTimer = setTimeout(() => {
