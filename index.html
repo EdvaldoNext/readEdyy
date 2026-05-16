@@ -1120,6 +1120,7 @@
         ttsStopRequested = true;
         isReading = false;
         cancelCurrentTtsPlayback();
+        setMediaSessionPlaybackState('paused');
         const cap = ttsLastFullTextLen > 0 ? ttsLastFullTextLen : Math.max(0, ttsAbsCharEnd);
         ttsResumeCharOffset = Math.min(Math.max(0, ttsAbsCharEnd), cap);
         ttsResumePageNum = pageNum;
@@ -1138,6 +1139,7 @@
         ttsStopRequested = true;
         isReading = false;
         cancelCurrentTtsPlayback();
+        setMediaSessionPlaybackState('none');
         fullPageText = '';
         ttsCharRanges = [];
         speakLock = false;
@@ -1166,6 +1168,59 @@
         _toastTimer = setTimeout(() => el.classList.remove('visible'), 2800);
     }
 
+    function setMediaSessionPlaybackState(state) {
+        if (!('mediaSession' in navigator)) return;
+        try {
+            navigator.mediaSession.playbackState = state;
+        } catch (e) {}
+    }
+
+    function updateMediaSession(tituloLivro, paginaAtual) {
+        if (!('mediaSession' in navigator)) return;
+
+        try {
+            if (typeof window.MediaMetadata === 'function') {
+                navigator.mediaSession.metadata = new window.MediaMetadata({
+                    title: tituloLivro || 'Lendo Livro PDF',
+                    artist: 'ReadEra Web Pro',
+                    album: 'Página ' + (paginaAtual || 1)
+                });
+            }
+        } catch (e) {}
+
+        try {
+            navigator.mediaSession.setActionHandler('play', function() {
+                if (typeof toggleTTS === 'function' && !isReading && !speakLock) toggleTTS();
+            });
+        } catch (e) {}
+
+        try {
+            navigator.mediaSession.setActionHandler('pause', function() {
+                if (typeof toggleTTS === 'function' && (isReading || speakLock)) toggleTTS();
+            });
+        } catch (e) {}
+
+        try {
+            navigator.mediaSession.setActionHandler('stop', function() {
+                if (typeof stopTTS === 'function') stopTTS();
+            });
+        } catch (e) {}
+
+        try {
+            navigator.mediaSession.setActionHandler('previoustrack', function() {
+                if (typeof changePage === 'function') changePage(-1);
+            });
+        } catch (e) {}
+
+        try {
+            navigator.mediaSession.setActionHandler('nexttrack', function() {
+                if (typeof changePage === 'function') changePage(1);
+            });
+        } catch (e) {}
+
+        setMediaSessionPlaybackState('playing');
+    }
+
     function handlePageFinished(text) {
         const continuous = document.getElementById('continuous-read').checked;
         const hasNext = pageNum < pdfDoc.numPages;
@@ -1174,6 +1229,7 @@
         currentUtterance = null;
         stopBackendAudio();
         ttsAbsCharEnd = text.length;
+        setMediaSessionPlaybackState('paused');
 
         if (continuous && hasNext) {
             resetTtsBookmark();
@@ -1334,6 +1390,7 @@
                 isReading = true;
                 speakLock = false;
                 ttsAbsCharEnd = resumeFrom;
+                updateMediaSession(lastOpenedFileName || 'Lendo Livro PDF', pageNum);
                 setTtsActiveButton();
                 startBackendProgress(currentAudio, text, resumeFrom, chunk.end);
             };
@@ -1361,6 +1418,7 @@
 
             currentAudio.onerror = () => {
                 clearBackendProgressTimer();
+                setMediaSessionPlaybackState('none');
                 stopTTS();
                 showTtsToast('Erro ao tocar o áudio gerado pelo backend.');
             };
@@ -1425,6 +1483,7 @@
             ttsAbsCharEnd = utteranceCharOffset;
             isReading = true;
             speakLock = false;
+            updateMediaSession(lastOpenedFileName || 'Lendo Livro PDF', pageNum);
             setTtsActiveButton();
         };
 
